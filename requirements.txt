@@ -1,0 +1,2 @@
+jira-python==0.16
+PyYAML>=3.11
