@@ -18,11 +18,10 @@ setup(
     license="BSD",
     packages=find_packages(exclude=['tests']),
     long_description="",
-    setup_requires=['jira-python==0.16', 'PyYAML>=3.11'],
+    install_requires=['jira-python==0.16', 'PyYAML>=3.10'],
     test_suite='nose.collector',
     classifiers=[
         "License :: OSI Approved :: MIT License",
     ],
-
-    #entry_points = {'console_scripts': ['']}
+    entry_points = {'console_scripts': ['jywriter = jy.writer:main']}
 )
