@@ -109,8 +109,8 @@ def do_stuff(jira, items, original):
                 data = dict(key=str(issue.key),
                             summary=str(issue.fields.summary),
                             assignee=str(issue.fields.assignee.name),
-                            status=str(issue.fields.status.name),
-                            components=map(lambda x: str(x.name), issue.fields.components))
+                            status=str(issue.fields.status.name))
+                            #components=map(lambda x: str(x.name), issue.fields.components))
                 original.insert(i_ + 2 + j, data)
             break
 
