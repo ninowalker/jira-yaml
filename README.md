@@ -12,6 +12,11 @@ Install in develop mode so that you can hack the engine:
     cd jira-yaml
     python setup.py develop
 
+Setup your connection parameters:
+
+    export JY_USERNAME=bob
+    export JY_PASSWORD=password
+    export JY_SERVER=https://jira.jira/somewhere
 
 Usage
 ------
@@ -126,3 +131,24 @@ Within an issue with a key:
       +comment: This is my comment. Add it to the ticket please.
     
 On the next run, the comment will be added and then removed from the current document.
+
+# Emacs Integration
+
+    (defun jira-open ()
+      (interactive)
+      (shell-command
+       (format "open https://livefyre.atlassian.net/browse/%s" (symbol-at-point))))
+    
+    (global-auto-revert-mode 1)
+    (defun jira-run ()
+      (interactive)
+      (setenv "JY_SERVER" "https://....atlassian.net")
+      (setenv "JY_USERNAME" "...")
+      (setenv "JY_PASSWORD" "...")
+      (shell-command
+       (format "jywriter %s" buffer-file-name))
+      (revert-buffer t t)
+    )
+
+    (global-set-key (kbd "C-x C-\\") 'jira-open)
+
