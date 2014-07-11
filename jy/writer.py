@@ -59,6 +59,11 @@ def do_stuff(jira, items, original):
     original_manifest = copy.deepcopy(manifest)
     transform(manifest)
     for item, orig in zip(items, original[1:]):
+        if '+comment' in item:
+            comment = item.pop('+comment')
+            jira.add_comment(item['key'], comment)
+            orig.pop('+comment')
+            print "Added to", item['key'], comment
         if 'manifest' in item:
             manifest = copy.deepcopy(original_manifest)
             manifest.update(item['manifest'])
@@ -101,7 +106,7 @@ def do_stuff(jira, items, original):
         for i_, (item, orig) in enumerate(zip(items, original[1:])):
             if 'search' not in item:
                 continue
-            if 'complete' in item:
+            if item.get('complete'):
                 continue
             found = True
             item['complete'] = orig['complete'] = True
