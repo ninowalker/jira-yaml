@@ -1,9 +1,9 @@
 from jira.client import JIRA
+from jy.ioutil import load, dump
 import copy
 import os
-import shutil
 import sys
-import yaml
+
 
 SHORTENED = [('assignee', 'name'), ('project', 'key'), ('reporter', 'name'), ('issuetype', 'name'),
              ('at', 'name'),
@@ -49,8 +49,8 @@ def create_issue(jira, manifest, item, **kwargs):
     return issue, links
 
 
-def do_stuff(jira, items, original):
-    manifest = items.pop(0)
+def do_stuff(jira, items):
+    manifest = items[0]
     custom_fields = manifest.pop("customFields", {})
 
     def transform(item):
@@ -58,11 +58,11 @@ def do_stuff(jira, items, original):
 
     original_manifest = copy.deepcopy(manifest)
     transform(manifest)
-    for item, orig in zip(items, original[1:]):
+    for item in items[1:]:
         if '+comment' in item:
             comment = item.pop('+comment')
             jira.add_comment(item['key'], comment)
-            orig.pop('+comment')
+            item.rm('+comment')
             print "Added to", item['key'], comment
         if 'manifest' in item:
             manifest = copy.deepcopy(original_manifest)
@@ -74,7 +74,7 @@ def do_stuff(jira, items, original):
         if 'key' not in item:
             transform(item)
             issue, links = create_issue(jira, manifest, item)
-            item['key'] = orig['key'] = str(issue.key)
+            item.apply('key', str(issue.key))
             for link in links:
                 jira.create_issue_link(link['type'], issue.key, link['key'])
             print "Created", issue.key
@@ -88,35 +88,24 @@ def do_stuff(jira, items, original):
                                                 reporter=manifest['reporter']),
                                      task, parent=dict(key=item['key']), issuetype=dict(id=5))
                 print "Created", st.key
-                orig['subtasks'][i]['key'] = str(st.key)
-        for i, (collaborator, tasks) in enumerate((item.get("collaborators") or {}).iteritems()):
-            for j, task in enumerate(tasks):
-                if 'key' not in task:
-                    transform(task)
-                    st, _ = create_issue(jira,
-                                         dict(project=manifest['project'],
-                                              assignee=dict(name=collaborator),
-                                              reporter=manifest['reporter']),
-                                              task, parent=dict(key=item['key']), issuetype=dict(id=5))
-                    print "Created", st.key
-                    orig['collaborators'][collaborator][j]['key'] = str(st.key)
+                item['subtasks'][i].apply('key', str(st.key))
     found = True
     while found:
         found = False
-        for i_, (item, orig) in enumerate(zip(items, original[1:])):
+        for i_, item in enumerate(items[1:]):
             if 'search' not in item:
                 continue
             if item.get('complete'):
                 continue
             found = True
-            item['complete'] = orig['complete'] = True
+            item.apply('complete', True)
             for j, issue in enumerate(jira.search_issues(item['search'])):
                 data = dict(key=str(issue.key),
                             summary=str(issue.fields.summary),
                             assignee=str(issue.fields.assignee.name),
                             status=str(issue.fields.status.name))
                             #components=map(lambda x: str(x.name), issue.fields.components))
-                original.insert(i_ + 2 + j, data)
+                item.parent.insert(i_ + 2 + j, data)
             break
 
 
@@ -136,13 +125,12 @@ def main():
         infile = outfile = args[0]
     else:
         infile, outfile = args[0], args[1]
-    items = yaml.load(open(infile))
-    orig = copy.deepcopy(items)
+    items = load(open(infile))
     try:
-        do_stuff(jira, items, orig)
+        do_stuff(jira, items)
     finally:
         with open(outfile, "w") as f:
-            yaml.dump(orig, f, default_flow_style=False)
+            dump(items, f, default_flow_style=False)
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@ import yaml
 
 
 class sdict(collections.OrderedDict):
-    """A shadow datastructure which maintains a copy of the original data
+    """A shadow data structure which maintains a copy of the original data
     in order, and maintains parent-hierarchy.
     """
     def __init__(self, pairs, parent=None):
@@ -20,6 +20,10 @@ class sdict(collections.OrderedDict):
     def apply(self, key, value):
         self.real[key] = self[key] = value
 
+    def rm(self, key):
+        del self[key]
+        del self.real[key]
+
 
 class slist(list):
     def __init__(self, *args):
@@ -30,7 +34,6 @@ class slist(list):
         v = list.__getitem__(self, key)
         if isinstance(v, (sdict, slist)):
             v.parent = self
-            print ">>>", self
         return v
 
 # from:
@@ -48,7 +51,7 @@ def sdict_constructor(loader, node):
 
 
 def slist_representer(dumper, data):
-    return dumper.represent_sequence(_seq_tag, data.real)
+    return dumper.represent_sequence(_seq_tag, data)
 
 
 def slist_constructor(loader, node):
