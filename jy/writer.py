@@ -74,7 +74,7 @@ def do_stuff(jira, manifest, items):
                 v = [("*" * 80), ("*" * 80)]
             item.apply('+block', v)
         if '+comment' in item:
-            comment = item.pop('+comment')
+            comment = item['+comment']
             jira.add_comment(item['key'], comment)
             item.rm('+comment')
             print "Added to", item['key'], comment
