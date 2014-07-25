@@ -10,7 +10,7 @@ local = lambda x: os.path.join(base, x)
 
 setup(
     name="jira-yaml",
-    version="0.0.1",
+    version="0.1.0",
     author="Nino Walker",
     author_email="nino.walker@gmail.com",
     description=(""),
