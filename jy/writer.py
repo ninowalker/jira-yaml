@@ -67,6 +67,12 @@ def do_stuff(jira, manifest, items):
     for item in items:
         if '-ignore' in item:
             continue
+        if '+block' in item:
+            if 'summary' in item:
+                v = [("*" * 80), item['summary'], ("*" * 80)]
+            else:
+                v = [("*" * 80), ("*" * 80)]
+            item.apply('+block', v)
         if '+comment' in item:
             comment = item.pop('+comment')
             jira.add_comment(item['key'], comment)
