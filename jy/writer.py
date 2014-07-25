@@ -49,16 +49,24 @@ def create_issue(jira, manifest, item, **kwargs):
     return issue, links
 
 
-def do_stuff(jira, items):
-    manifest = items[0]
+def map_users(item, users):
+    for k in ['assignee', 'reporter']:
+        if item.get(k) in users:
+            item[k] = users[item.get(k)]
+
+def do_stuff(jira, manifest, items):
     custom_fields = manifest.pop("customFields", {})
+    users = manifest.pop("users", {})
 
     def transform(item):
+        map_users(item, users)
         map_custom_fields(item, custom_fields)
 
     original_manifest = copy.deepcopy(manifest)
     transform(manifest)
-    for item in items[1:]:
+    for item in items:
+        if '-ignore' in item:
+            continue
         if '+comment' in item:
             comment = item.pop('+comment')
             jira.add_comment(item['key'], comment)
@@ -76,7 +84,9 @@ def do_stuff(jira, items):
             issue, links = create_issue(jira, manifest, item)
             item.apply('key', str(issue.key))
             for link in links:
-                jira.create_issue_link(link['type'], issue.key, link['key'])
+                if isinstance(link, basestring):
+                    link = dict(type="relates to", key=link)
+                jira.create_issue_link(link.get('type', 'relates to'), issue.key, link['key'])
             print "Created", issue.key
         for i, task in enumerate(item.get("subtasks") or []):
             if 'key' not in task:
@@ -126,8 +136,16 @@ def main():
     else:
         infile, outfile = args[0], args[1]
     items = load(open(infile))
+
+    manifest = {}
+    defaults = os.path.expanduser("~/.jy")
+    if os.path.exists(defaults):
+        manifest.update(load(open(defaults)))
+
+    manifest.update(items[0])
+    
     try:
-        do_stuff(jira, items)
+        do_stuff(jira, manifest, items[1:])
     finally:
         with open(outfile, "w") as f:
             dump(items, f, default_flow_style=False)

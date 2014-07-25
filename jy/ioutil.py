@@ -30,11 +30,10 @@ class slist(list):
         super(slist, self).__init__(*args)
         self.parent = None
 
-    def __getitem__(self, key):
-        v = list.__getitem__(self, key)
-        if isinstance(v, (sdict, slist)):
-            v.parent = self
-        return v
+    def parentize(self):
+        for v in self:
+            if isinstance(v, (sdict, slist)):
+                v.parent = self
 
 # from:
 # http://stackoverflow.com/questions/5121931/in-python-how-can-you-load-yaml-mappings-as-ordereddicts
@@ -55,7 +54,9 @@ def slist_representer(dumper, data):
 
 
 def slist_constructor(loader, node):
-    return slist(loader.construct_sequence(node))
+    l = slist(loader.construct_sequence(node))
+    l.parentize()
+    return l
 
 
 yaml.add_representer(sdict, sdict_representer)
