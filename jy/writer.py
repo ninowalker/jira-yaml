@@ -1,5 +1,6 @@
 from jira.client import JIRA
 from jy.ioutil import load, dump
+from jy.transformers import Transformer, ApplyTransformers
 import copy
 import os
 import sys
@@ -54,6 +55,7 @@ def map_users(item, users):
         if item.get(k) in users:
             item[k] = users[item.get(k)]
 
+
 def do_stuff(jira, manifest, items):
     custom_fields = manifest.pop("customFields", {})
     users = manifest.pop("users", {})
@@ -105,24 +107,8 @@ def do_stuff(jira, manifest, items):
                                      task, parent=dict(key=item['key']), issuetype=dict(id=5))
                 print "Created", st.key
                 item['subtasks'][i].apply('key', str(st.key))
-    found = True
-    while found:
-        found = False
-        for i_, item in enumerate(items[1:]):
-            if 'search' not in item:
-                continue
-            if item.get('complete'):
-                continue
-            found = True
-            item.apply('complete', True)
-            for j, issue in enumerate(jira.search_issues(item['search'])):
-                data = dict(key=str(issue.key),
-                            summary=str(issue.fields.summary),
-                            assignee=str(issue.fields.assignee.name),
-                            status=str(issue.fields.status.name))
-                            #components=map(lambda x: str(x.name), issue.fields.components))
-                item.parent.insert(i_ + 2 + j, data)
-            break
+
+    ApplyTransformers(jira)(items)
 
 
 def connect(server=None, username=None, password=None):
