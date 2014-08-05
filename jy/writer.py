@@ -1,143 +1,142 @@
-from jira.client import JIRA
+from jira.client import GreenHopper
 from jy.ioutil import load, dump
-from jy.transformers import Transformer, ApplyTransformers
+from jy.transformers import ApplyTransformers, NewManifest, Transformer
+from optparse import OptionParser
 import copy
+import functools
 import os
-import sys
 
 
-SHORTENED = [('assignee', 'name'), ('project', 'key'), ('reporter', 'name'), ('issuetype', 'name'),
-             ('at', 'name'),
-             ('zone', 'value'), ('ptype', 'value')]
-SHORTENED_LISTS = [('components', 'name'),
-                   ('fixVersions', 'name'),
-                   ('customer', '')]
+class Context(object):
+    def __init__(self, jira):
+        self.jira = jira
+        self.manifests = []
+        self.user_fields = ['assignee', 'reporter']
+        self.aliases = {}
+        self.user_aliases = {}
+        self.objectified = {}
 
+    def create_issue_from_item(self, item, **kwargs):
+        params = self.compute_defaults()
+        params.update(self._normalize(item))
+        params.update(self._normalize(kwargs))
+        try:
+            issue = self.jira.create_issue(**params)
+        except:
+            print params
+            raise
+        return issue
 
-def map_custom_fields(item, fields):
-    for f, k in SHORTENED:
-        if isinstance(item.get(f), basestring):
-            item[f] = {k: item[f]}
+    def compute_defaults(self):
+        params = {}
+        for m in self.manifests:
+            params.update(self._normalize(m))
+        return params
 
-    for f, k in SHORTENED_LISTS:
-        l = item.get(f, [])
+    def create_subtask_from_item(self, task, parent):
+        base_manifest = self.compute_defaults()
+        params = dict(project=base_manifest['project'],
+                      assignee=base_manifest['assignee'],
+                      reporter=base_manifest['reporter'],
+                      issuetype=dict(id=5),
+                      parent=dict(key=parent['key']))
+
+        if 'assignee' not in task and 'assignee' in parent:
+            task['assignee'] = parent['assignee']
+        params.update(task)
+        kw = None
+        try:
+            kw = self._normalize(params)
+            return self.jira.create_issue(**kw)
+        except:
+            print kw
+            raise
+
+    def update_objectified(self, k, v):
+        if isinstance(v, basestring):
+            self.objectified[k] = functools.partial(self._dictify, k, v)
+        elif isinstance(v, list):
+            self.objectified[k] = functools.partial(self._listify, k, v[0])
+
+    def _dictify(self, k, dkey, item):
+        if isinstance(item.get(k), basestring):
+            item[k] = {dkey: item[k]}
+
+    def _listify(self, k, dkey, item):
+        l = item.get(k, [])
         if not isinstance(l, list):
-            item[f] = l = [l]
+            item[k] = l = [l]
         for i, el in enumerate(l):
             if isinstance(el, basestring) and k:
-                item[f][i] = {k: el}
-    for k in fields:
-        if k in item:
-            item[fields[k]] = item.pop(k)
+                item[k][i] = {dkey: el}
 
-    f = 'issueLinks'
-    for i, link in enumerate(item.get(f, [])):
-        if isinstance(link, basestring):
-            item[f][i] = dict(key=link, type="relates to")
+    def _normalize(self, item):
+        item = copy.copy(item)
+        for k in self.user_fields:
+            user = item.get(k)
+            if isinstance(user, basestring) and user in self.user_aliases:
+                item[k] = self.user_aliases[user]
 
-
-def create_issue(jira, manifest, item, **kwargs):
-    kw = copy.copy(manifest)
-    kw.update(item)
-    kw.pop("subtasks", None)
-    kw.update(kwargs)
-    links = kw.pop("issueLinks", [])
-    try:
-        issue = jira.create_issue(**kw)
-    except:
-        print kw
-        raise
-    return issue, links
-
-
-def map_users(item, users):
-    for k in ['assignee', 'reporter']:
-        if item.get(k) in users:
-            item[k] = users[item.get(k)]
-
-
-def do_stuff(jira, manifest, items):
-    custom_fields = manifest.pop("customFields", {})
-    users = manifest.pop("users", {})
-
-    def transform(item):
-        map_users(item, users)
-        map_custom_fields(item, custom_fields)
-
-    original_manifest = copy.deepcopy(manifest)
-    transform(manifest)
-    for item in items:
-        if '-ignore' in item:
-            continue
-        if '+block' in item:
-            if 'summary' in item:
-                v = [("*" * 80), item['summary'], ("*" * 80)]
-            else:
-                v = [("*" * 80), ("*" * 80)]
-            item.apply('+block', v)
-        if '+comment' in item:
-            comment = item['+comment']
-            jira.add_comment(item['key'], comment)
-            item.rm('+comment')
-            print "Added to", item['key'], comment
-        if 'manifest' in item:
-            manifest = copy.deepcopy(original_manifest)
-            manifest.update(item['manifest'])
-            transform(manifest)
-            continue
-        if 'search' in item:
-            continue
-        if 'key' not in item:
-            transform(item)
-            issue, links = create_issue(jira, manifest, item)
-            item.apply('key', str(issue.key))
-            for link in links:
-                if isinstance(link, basestring):
-                    link = dict(type="relates to", key=link)
-                jira.create_issue_link(link.get('type', 'relates to'), issue.key, link['key'])
-            print "Created", issue.key
-        for i, task in enumerate(item.get("subtasks") or []):
-            if 'key' not in task:
-                if 'assignee' not in task and 'assignee' in item:
-                    task['assignee'] = item['assignee']
-                transform(task)
-                st, _ = create_issue(jira, dict(project=manifest['project'],
-                                                assignee=manifest['assignee'],
-                                                reporter=manifest['reporter']),
-                                     task, parent=dict(key=item['key']), issuetype=dict(id=5))
-                print "Created", st.key
-                item['subtasks'][i].apply('key', str(st.key))
-
-    ApplyTransformers(jira)(items)
+        # transform anything needing transformed
+        for trans in self.objectified.values():
+            trans(item)
+        # map over aliased fields
+        for k, v in self.aliases.items():
+            if k in item:
+                item[v] = item.pop(k)
+        # pop out exceptional tags
+        for trans in Transformer:
+            for k in trans.ignored:
+                item.pop(k, v)
+        return item
 
 
 def connect(server=None, username=None, password=None):
     def _value(name, value):
         return value or os.environ['JY_%s' % name.upper()]
 
-    return JIRA(options={'server': _value('server', server)},
-                      basic_auth=(_value('username', username),
-                                  _value('password', password)))
+    return GreenHopper(options={'server': _value('server', server)},
+                       basic_auth=(_value('username', username),
+                                   _value('password', password)))
 
 
 def main():
-    jira = connect()
-    args = sys.argv[1:]
-    if len(args) == 1:
-        infile = outfile = args[0]
+    parser = OptionParser()
+    parser.add_option("-t", "--test",
+                      action="store_true", dest="test", default=False,
+                      help="test mode")
+    parser.add_option("-O", "--output",
+                      dest="output", default=None,
+                      help="output file", metavar="OUTFILE")
+
+    (options, args) = parser.parse_args()
+
+    if options.test:
+        from mock import Mock
+        jira = Mock(spec=GreenHopper)
+        jira.search_issues.return_value = [Mock(), Mock()]
+
+        def create_issue(**kwargs):
+            m = Mock()
+            m.key = kwargs
+            return m
+        jira.create_issue.side_effect = create_issue
+        options.output = "/dev/stdout"
     else:
-        infile, outfile = args[0], args[1]
+        jira = connect()
+    infile = args[0]
+    outfile = options.output or infile
+
     items = load(open(infile))
 
-    manifest = {}
+    context = Context(jira)
+
     defaults = os.path.expanduser("~/.jy")
     if os.path.exists(defaults):
-        manifest.update(load(open(defaults)))
-
-    manifest.update(items[0])
-    
+        def_ = load(open(defaults))
+        NewManifest(context)(def_)
     try:
-        do_stuff(jira, manifest, items[1:])
+        ApplyTransformers(context)(items)
     finally:
         with open(outfile, "w") as f:
             dump(items, f, default_flow_style=False)

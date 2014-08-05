@@ -24,6 +24,11 @@ class sdict(collections.OrderedDict):
         del self[key]
         del self.real[key]
 
+    def parentize(self):
+        for v in self.values():
+            if isinstance(v, (sdict, slist)):
+                v.parent = self
+
 
 class slist(list):
     def __init__(self, *args):
@@ -46,7 +51,9 @@ def sdict_representer(dumper, data):
 
 
 def sdict_constructor(loader, node):
-    return sdict(loader.construct_pairs(node))
+    d = sdict(loader.construct_pairs(node))
+    d.parentize()
+    return d
 
 
 def slist_representer(dumper, data):
