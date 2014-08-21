@@ -1,3 +1,5 @@
+from collections import OrderedDict
+from jy.ioutil import slist, sdict
 
 
 class TransformerMetaClass(type):
@@ -86,7 +88,7 @@ class AddComment(KeyTransformer):
     ignored = keys = ['+comment']
 
     def _do(self, k, comment, item):
-        self.ctx.add_comment(item['key'], comment)
+        self.ctx.jira.add_comment(item['key'], comment)
         item.rm(k)
         print "Added to", item['key'], comment
 
@@ -105,7 +107,7 @@ class IssueLinks(KeyTransformer):
             if isinstance(link, basestring):
                 link = {link: 'relates to'}
             issue, type_ = link.items()[0]
-            self.ctx.create_issue_link(type_, item['key'], issue)
+            self.ctx.jira.create_issue_link(type_, item['key'], issue)
             link.apply('created', True)
             print "Linked", item['key'], "to", issue
 
@@ -209,9 +211,30 @@ class DoSearch(Transformer):
             return
         item.apply('complete', True)
         i_ = item.parent.index(item)
-        for j, issue in enumerate(self.ctx.jira.search_issues(item['search'])):
-            data = dict(key=str(issue.key),
-                        summary=str(issue.fields.summary),
-                        assignee=str(issue.fields.assignee.name),
-                        status=str(issue.fields.status.name))
-            item.parent.insert(i_ + 2 + j, data)
+        for j, data in self._search(item['search']):
+            item.parent.insert(i_ + 2 + j, sdict(data.items()))
+
+    def _search(self, query):
+        for j, issue in enumerate(self.ctx.jira.search_issues(query)):
+            data = OrderedDict()
+            data[str(issue.fields.issuetype.name)] = str(issue.fields.summary)
+            data['assignee'] = str(issue.fields.assignee.name)
+            data['status'] = str(issue.fields.status.name)
+            data['key'] = str(issue.key)
+            yield j, data
+
+
+class GetLinked(KeyTransformer):
+    ignored = keys = ['+linked']
+
+    def _do(self, _k, query, item):
+        search = DoSearch(self.ctx)
+        parent = item.parent.parent
+        i_ = item.parent.index(item)
+        key = parent['key']
+        q = "(issue in linkedIssues(%s) or \"Epic Link\" = %s or parent in tempoEpicIssues(%s) or parent = %s)" % (key, key, key, key)
+        if query:
+            q = "%s AND %s" % (q, query)
+        for j, data in search._search(q):
+            item.parent.insert(i_ + 2 + j, sdict(data.items()))
+        item.parent.remove(item)
