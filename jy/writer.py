@@ -5,6 +5,7 @@ from optparse import OptionParser
 import copy
 import functools
 import os
+import sys
 
 
 class Context(object):
@@ -22,9 +23,10 @@ class Context(object):
         params.update(self._normalize(kwargs))
         try:
             issue = self.jira.create_issue(**params)
-        except:
-            print params
-            raise
+        except Exception, e:
+            print >> sys.stderr, params
+            print >> sys.stderr, e
+            sys.exit(1)
         return issue
 
     def compute_defaults(self):

@@ -7,6 +7,9 @@ PYTHON = . env/bin/activate; python
 
 build: env
 
+install:
+	python setup.py develop
+
 clean:
 	find jy -name "*.pyc" -type f -exec rm {} \;
 

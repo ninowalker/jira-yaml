@@ -2,6 +2,13 @@ from collections import OrderedDict
 from jy.ioutil import slist, sdict
 
 
+def safe_str(s):
+    try:
+        return str(s)
+    except UnicodeEncodeError:
+        return s
+
+
 class TransformerMetaClass(type):
     # Metaprogramming/RegisterLeafClasses.py
 
@@ -215,11 +222,13 @@ class DoSearch(Transformer):
             item.parent.insert(i_ + 2 + j, sdict(data.items()))
 
     def _search(self, query):
-        for j, issue in enumerate(self.ctx.jira.search_issues(query)):
+        for j, issue in enumerate(self.ctx.jira.search_issues(query, maxResults=200)):
             data = OrderedDict()
-            data[str(issue.fields.issuetype.name)] = str(issue.fields.summary)
+            type_ = str(issue.fields.issuetype.name)
+            data[type_] = safe_str(issue.fields.summary)
             data['assignee'] = str(issue.fields.assignee.name)
             data['status'] = str(issue.fields.status.name)
+            data['desc'] = safe_str(issue.fields.description)
             data['key'] = str(issue.key)
             yield j, data
 
