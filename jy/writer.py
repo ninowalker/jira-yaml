@@ -19,8 +19,10 @@ class Context(object):
 
     def create_issue_from_item(self, item, **kwargs):
         params = self.compute_defaults()
-        params.update(self._normalize(item))
-        params.update(self._normalize(kwargs))
+        params.update(item)
+        params.update(kwargs)
+        self._squash_prefixed(params)
+        params = self._normalize(params)
         try:
             issue = self.jira.create_issue(**params)
         except Exception, e:
@@ -29,10 +31,22 @@ class Context(object):
             sys.exit(1)
         return issue
 
+    def _squash_prefixed(self, params):
+        """Ensure handle issuetype/value"""
+        prefix = "%s/" % self._normalize(params)["issuetype"]['name']
+        for key in params.keys():
+            if key.startswith(prefix):
+                pkey = key[len(prefix):]
+                pval = params.pop(key)
+                if pkey not in params:
+                    params[pkey] = pval
+            elif "/" in key:
+                params.pop(key)
+
     def compute_defaults(self):
         params = {}
         for m in self.manifests:
-            params.update(self._normalize(m))
+            params.update(m)
         return params
 
     def create_subtask_from_item(self, task, parent):
@@ -89,7 +103,7 @@ class Context(object):
         # pop out exceptional tags
         for trans in Transformer:
             for k in trans.ignored:
-                item.pop(k, v)
+                item.pop(k, None)
         return item
 
 

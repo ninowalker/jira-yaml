@@ -155,7 +155,7 @@ class Subtasks(KeyTransformer):
 class NewIssue(Transformer):
     priority = 10
 
-    issuetypes = ['Project', 'Story', 'Bug', 'Epic', None]
+    issuetypes = ['Improvement', 'Project', 'Story', 'Bug', 'Epic', None]
 
     def __call__(self, item):
         for k in self.issuetypes:
