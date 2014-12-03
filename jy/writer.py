@@ -6,6 +6,7 @@ import copy
 import functools
 import os
 import sys
+from docopt import docopt
 
 
 class Context(object):
@@ -107,54 +108,67 @@ class Context(object):
         return item
 
 
-def connect(server=None, username=None, password=None):
-    def _value(name, value):
-        return value or os.environ['JY_%s' % name.upper()]
+def connect(conf):
+    conf = conf or {}
+    connection = conf.get('connection', {})
+    def _value(name):
+        return connection.get(name) or os.environ['JY_%s' % name.upper()]
 
-    return GreenHopper(options={'server': _value('server', server)},
-                       basic_auth=(_value('username', username),
-                                   _value('password', password)))
+    return GreenHopper(options={'server': _value('server')},
+                       basic_auth=(_value('username'),
+                                   _value('password')))
+
+
+def mock_connect(conf):
+    from mock import Mock
+    jira = Mock(spec=GreenHopper)
+    jira.search_issues.return_value = [Mock(), Mock()]
+    
+    def create_issue(**kwargs):
+        m = Mock()
+        m.key = kwargs
+        return m
+    jira.create_issue.side_effect = create_issue
+    return jira
 
 
 def main():
-    parser = OptionParser()
-    parser.add_option("-t", "--test",
-                      action="store_true", dest="test", default=False,
-                      help="test mode")
-    parser.add_option("-O", "--output",
-                      dest="output", default=None,
-                      help="output file", metavar="OUTFILE")
+    """JIRA-Yaml Writer.
 
-    (options, args) = parser.parse_args()
+Usage:
+  jywriter [options] <input>
+  jywriter [options] <input> <output>
+  
+Options:
+  -h --help     Show this screen.
+  -t --test     Use a mock instead of connecting to JIRA.
+    """
+    arguments = docopt(main.__doc__)
 
-    if options.test:
-        from mock import Mock
-        jira = Mock(spec=GreenHopper)
-        jira.search_issues.return_value = [Mock(), Mock()]
-
-        def create_issue(**kwargs):
-            m = Mock()
-            m.key = kwargs
-            return m
-        jira.create_issue.side_effect = create_issue
-        options.output = "/dev/stdout"
+    if arguments.get('--test'):
+        _connect = mock_connect
+        arguments['<output>'] = "/dev/stdout"
     else:
-        jira = connect()
-    infile = args[0]
-    outfile = options.output or infile
+        _connect = connect
 
-    items = load(open(infile))
+    if not arguments.get("<output>"):
+        arguments['<output>'] = arguments['<input>']
 
-    context = Context(jira)
-
+    conf = None
     defaults = os.path.expanduser("~/.jy")
     if os.path.exists(defaults):
-        def_ = load(open(defaults))
-        NewManifest(context)(def_)
+        conf = load(open(defaults))
+
+    jira = connect(conf)
+    items = load(open(arguments["<input>"]))
+    context = Context(jira)
+
+    if conf:
+        NewManifest(context)(conf)
     try:
         ApplyTransformers(context)(items)
     finally:
-        with open(outfile, "w") as f:
+        with open(arguments['<output>'], "w") as f:
             dump(items, f, default_flow_style=False)
 
 
