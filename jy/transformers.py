@@ -71,6 +71,36 @@ class ApplyTransformers(Transformer):
                     break
         self.ctx.manifests = original_manifest
 
+class UpdateIssues(object):
+    def __init__(self, context):
+        self.ctx = context
+        self.keys = {}
+
+    def __call__(self, items):
+        self.recurse(items)
+        self.do_updates()
+
+    def do_updates(self):
+        search = DoSearch(self.ctx)._search("key in (%s)" % ",".join(self.keys.keys()))
+        for _, v in search:
+            item = self.keys[v['key']]
+            item.apply('status', str(v['status']))
+
+    def recurse(self, items):
+        if isinstance(items, dict):
+            items = [items]
+        for item in items[:]:
+            self.inspect(item)
+
+    def inspect(self, item):
+        if not item.get('key'):
+            return
+        self.keys[item['key']] = item
+        for i in item.get('items', []):
+            self.recurse(i)
+        for i in item.get('subtasks', []):
+            self.recurse(i)
+
 
 class Skip(KeyTransformer):
     priority = 0
@@ -98,6 +128,36 @@ class AddComment(KeyTransformer):
         self.ctx.jira.add_comment(item['key'], comment)
         item.rm(k)
         print "Added to", item['key'], comment
+
+
+class SetStatus(KeyTransformer):
+    ignored = keys = ['+status']
+    transitions = {}
+
+    def _do(self, k, status, item):
+        prefix = item['key'].split('-')[0]
+        if prefix not in self.transitions:
+            trans = self.ctx.jira.transitions(item['key'])
+            self.transitions[prefix] = dict([(t['name'], t['id']) for t in trans])
+        try:
+            self.ctx.jira.transition_issue(item['key'], self.transitions[prefix][status])
+        except KeyError:
+            print self.transitions[prefix]
+            raise
+        item.rm(k)
+        item.apply('status', status)
+        print "Updated status", item['key'], status
+
+
+class SetFixVersion(KeyTransformer):
+    ignored = keys = ['+fixVersion']
+
+    def _do(self, k, name, item):
+        issue = self.ctx.jira.issue(item['key'], fields='key')
+        issue.update(dict(fixVersions=[dict(name=name)]))
+        item.rm(k)
+        item.apply('fixVersions', name)
+        print "Updated fixVersion", item['key'], name
 
 
 class IssueLinks(KeyTransformer):

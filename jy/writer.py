@@ -1,6 +1,6 @@
-from jira.client import GreenHopper
+from jira.client import GreenHopper, JIRA
 from jy.ioutil import load, dump
-from jy.transformers import ApplyTransformers, NewManifest, Transformer
+from jy.transformers import ApplyTransformers, NewManifest, Transformer, UpdateIssues
 from optparse import OptionParser
 import copy
 import functools
@@ -140,6 +140,7 @@ Usage:
   jywriter [options] <input> <output>
   
 Options:
+  -U --update   Update all the known tickets with Status.
   -h --help     Show this screen.
   -t --test     Use a mock instead of connecting to JIRA.
     """
@@ -166,7 +167,10 @@ Options:
     if conf:
         NewManifest(context)(conf)
     try:
-        ApplyTransformers(context)(items)
+        if arguments.get("--update"):
+            UpdateIssues(context)(items)
+        else:
+            ApplyTransformers(context)(items)
     finally:
         with open(arguments['<output>'], "w") as f:
             dump(items, f, default_flow_style=False)
