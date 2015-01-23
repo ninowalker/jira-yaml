@@ -17,7 +17,7 @@ setup(
     license="BSD",
     packages=find_packages(exclude=['tests']),
     long_description="",
-    install_requires=['jira-python==0.16', 'PyYAML>=3.10', 'docopt', 'mock'],
+    install_requires=['jira==0.35', 'PyYAML>=3.10', 'docopt', 'mock'],
     test_suite='nose.collector',
     classifiers=[
         "License :: OSI Approved :: MIT License",

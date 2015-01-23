@@ -1,5 +1,8 @@
 from collections import OrderedDict
+from jira.utils import raise_on_error
 from jy.ioutil import slist, sdict
+import json
+import urlparse
 
 
 def safe_str(s):
@@ -43,6 +46,7 @@ class Transformer(object):
 
 
 class KeyTransformer(Transformer):
+    """Base class for transformers which operate on a one or more keys."""
     keys = []
 
     def __call__(self, item):
@@ -73,6 +77,8 @@ class ApplyTransformers(Transformer):
 
 
 class UpdateIssues(object):
+    """Updates fields on each item. Removes items from the document if they are completed,
+    when purge option is set."""
     def __init__(self, context, purge=False):
         self.ctx = context
         self.purge = purge
@@ -110,6 +116,7 @@ class UpdateIssues(object):
 
 
 class Skip(KeyTransformer):
+    """Skip over this item."""
     priority = 0
     keys = ['+ignore', '-ignore']
 
@@ -207,7 +214,76 @@ class ParentLink(Transformer):
             print "Linked", item['key'], "to", parent['key']
 
 
+class SprintLink(KeyTransformer):
+    priority = 1000
+
+    ignored = keys = ['sprint', '+sprint']
+    boards = {}
+    sprints = {}
+
+    @classmethod
+    def add_board(cls, board_id_or_url):
+        if 'http' in str(board_id_or_url):
+            board_id = urlparse.parse_qs(urlparse.urlparse(board_id_or_url).query)['rapidView'][0]
+        else:
+            board_id = board_id_or_url
+        cls.boards[int(board_id)] = None
+
+    def _do(self, key, sprint, item):
+        # only work with items just created
+        if not item.get('created') and key == 'sprint':
+            return
+        for board, sprints in self.boards.items():
+            if sprints == None:
+                self.boards[board] = set(self.ctx.jira.sprints(board))
+                for sprint_ in self.boards[board]:
+                    self.sprints[sprint_.name] = sprint_.id
+        if sprint != 'backlog':
+            print "Found sprint", sprint, self.sprints[sprint]
+            sprint_name = sprint
+            sprint = self.sprints[sprint]
+        else:
+            sprint_name = sprint
+        add_issues_to_sprint(self.ctx.jira, sprint, [item['key']])
+        print "Added", item['key'], "to", sprint_name
+        if key == '+sprint':
+            item.rm(key)
+        item.apply('sprint', sprint_name)
+
+
+def add_issues_to_sprint(self, sprint_id, issue_keys):
+    """
+    See comment thread here: https://confluence.atlassian.com/pages/viewpage.action?pageId=395707016
+
+    Add the issues in ``issue_keys`` to the ``sprint_id``. The sprint must
+    be started but not completed.
+
+    If a sprint was completed, then have to also edit the history of the
+    issue so that it was added to the sprint before it was completed,
+    preferably before it started. A completed sprint's issues also all have
+    a resolution set before the completion date.
+
+    If a sprint was not started, then have to edit the marker and copy the
+    rank of each issue too.
+
+    :param sprint_id: the sprint to add issues to
+    :param issue_keys: the issues to add to the sprint
+    """
+    data = {}
+    data['idOrKeys'] = issue_keys
+    data['customFieldId'] = 10002
+    if sprint_id != 'backlog':
+        data['sprintId'] = sprint_id
+        data['addToBacklog'] = False
+    else:
+        data['addToBacklog'] = True 
+    url = self._get_url('sprint/rank', base=self.GREENHOPPER_BASE_URL)
+    r = self._session.put(url, data=json.dumps(data))
+    raise_on_error(r)
+
+
 class Subtasks(KeyTransformer):
+    """Create subtasks"""
     ignored = keys = ['subtasks']
 
     def _do(self, _, tasks, item):
@@ -220,6 +296,7 @@ class Subtasks(KeyTransformer):
 
 
 class NewIssue(Transformer):
+    """Create an issue from an item."""
     priority = 10
 
     issuetypes = ['Improvement', 'Project', 'Story', 'Bug', 'Epic', None]
@@ -250,11 +327,13 @@ class NewIssue(Transformer):
 class NewManifest(KeyTransformer):
     priority = 10 ** 5 # ensure this happens after any creation logic.
 
-    ignored = keys = ['manifest', 'aliases', 'userAliases', 'userFields', 'objectify']
+    ignored = keys = ['manifest', 'aliases', 'userAliases', 'userFields', 'objectify', 'sprintBoard', 'sprintBoards']
 
     def __init__(self, ctx):
         super(NewManifest, self).__init__(ctx)
         self.current = None
+        self._sprints = None
+        self.boards = []
 
     def _do(self, key, manifest, _):
         if key == 'aliases':
@@ -266,6 +345,10 @@ class NewManifest(KeyTransformer):
         elif key == 'objectify':
             for k, v in manifest.items():
                 self.ctx.update_objectified(k, v)
+        elif key == 'sprintBoard':
+            SprintLink.add_board(manifest)
+        elif key == 'sprintBoards':
+            [SprintLink.add_board(board_id) for board_id in manifest]
         elif key == 'manifest':
             if self.current:
                 # we are seeing a second manifest at the same depth
@@ -308,7 +391,7 @@ class GetLinked(KeyTransformer):
         parent = item.parent.parent
         i_ = item.parent.index(item)
         key = parent['key']
-        q = "(issue in linkedIssues(%s) or \"Epic Link\" = %s or parent in tempoEpicIssues(%s) or parent = %s)" % (key, key, key, key)
+        q = "(issue in linkedIssues(%s) or \"Epic Link\" = %s or parent = %s)" % (key, key, key)
         if query:
             q = "%s AND %s" % (q, query)
         for j, data in search._search(q):
