@@ -123,7 +123,7 @@ def mock_connect(conf):
     from mock import Mock
     jira = Mock(spec=GreenHopper)
     jira.search_issues.return_value = [Mock(), Mock()]
-    
+
     def create_issue(**kwargs):
         m = Mock()
         m.key = kwargs
@@ -138,11 +138,13 @@ def main():
 Usage:
   jywriter [options] <input>
   jywriter [options] <input> <output>
-  
+
 Options:
   -U --update   Update all the known tickets with Status.
+  -P --purge    Remove all completed items
   -h --help     Show this screen.
   -t --test     Use a mock instead of connecting to JIRA.
+  --freemind    Output to freemind
     """
     arguments = docopt(main.__doc__)
 
@@ -154,6 +156,13 @@ Options:
 
     if not arguments.get("<output>"):
         arguments['<output>'] = arguments['<input>']
+
+    if arguments['--freemind']:
+        from jy.freemind import Writer
+        w = Writer(open(arguments.get('<output>', '/dev/stdout'), 'w'))
+        items = load(open(arguments["<input>"]))
+        w.doc({arguments["<input>"]: items})
+        return
 
     conf = None
     defaults = os.path.expanduser("~/.jy")
@@ -168,7 +177,7 @@ Options:
         NewManifest(context)(conf)
     try:
         if arguments.get("--update"):
-            UpdateIssues(context)(items)
+            UpdateIssues(context, arguments.get('--purge'))(items)
         else:
             ApplyTransformers(context)(items)
     finally:

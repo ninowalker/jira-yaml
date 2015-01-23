@@ -71,9 +71,11 @@ class ApplyTransformers(Transformer):
                     break
         self.ctx.manifests = original_manifest
 
+
 class UpdateIssues(object):
-    def __init__(self, context):
+    def __init__(self, context, purge=False):
         self.ctx = context
+        self.purge = purge
         self.keys = {}
 
     def __call__(self, items):
@@ -85,6 +87,7 @@ class UpdateIssues(object):
         for _, v in search:
             item = self.keys[v['key']]
             item.apply('status', str(v['status']))
+            self.on_update(item)
 
     def recurse(self, items):
         if isinstance(items, dict):
@@ -100,6 +103,10 @@ class UpdateIssues(object):
             self.recurse(i)
         for i in item.get('subtasks', []):
             self.recurse(i)
+
+    def on_update(self, item):
+        if self.purge and item['status'] in ("Closed", "Resolved"):
+            item.parent.remove(item)
 
 
 class Skip(KeyTransformer):
